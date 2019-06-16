@@ -17,8 +17,7 @@ def prop_forwards(row, observations):
             while current < ariel_jd:
                 count += 1
                 current += period
-                err_tot = np.sqrt(tmid_err * tmid_err + (count - observations) * (
-                        count - observations) * period_err * period_err)
+                err_tot = np.sqrt(tmid_err * tmid_err + count * count * period_err * period_err)
 
             percent = err_tot * 24 * 60 / duration * 100
             if percent >= 100.0:
