@@ -23,5 +23,5 @@ def generate_results(last_tmid, last_tmid_err, last_epoch, new_epoch, period):
 def find_true_t0(true_t0, true_period, last_true_epoch, epoch):
     epoch_dif = epoch - last_true_epoch
     new_true_t0 = true_t0 + epoch_dif*true_period
-    #TODO: Add Error?
+    #TODO: Add errors?
     return new_true_t0

@@ -3,14 +3,14 @@ from datetime import datetime, timedelta
 import shutil
 from os import mkdir, chdir, getcwd, remove
 
-database_name = 'new_tmid_method_KM1per.db'
+database_name = 'KM_new_prop.db'
 
 dir_name = database_name.split('.')[0]
 dir = '../'+dir_name
 try:
     shutil.rmtree(dir, ignore_errors=True)
     mkdir(dir)
-    shutil.copyfile('../clean_database/clean_KMscopes.db', dir+'/'+database_name)
+    shutil.copyfile('../clean_database/clean_KM_newprop.db', dir+'/'+database_name)
 except FileExistsError:
     pass
 

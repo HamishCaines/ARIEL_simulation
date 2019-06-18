@@ -383,9 +383,6 @@ class Database:
 
         self.db.commit()
 
-
-        #TODO: Loop for multiple days, check uncertainties, then extend over full duration
-
     def find_earliest_date(self):
         import datetime
         self.cursor.execute('SELECT Center FROM DEEP_TRANSITS')

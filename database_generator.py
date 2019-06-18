@@ -88,9 +88,9 @@ def generate_sql_table_from_csv(filename, table_name, cursor):
 
 
 def main():
-    database_name = 'clean_lessideal.db'
+    database_name = 'clean_KM_newprop.db'
     start_file = '../database/starting_data.csv'
-    telescope_file = '../database/telescopes_ideal.csv'
+    telescope_file = '../database/telescopes.csv'
 
     tel_cols, telescopes = load_planet_data(telescope_file)
 
