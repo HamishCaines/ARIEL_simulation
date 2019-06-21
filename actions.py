@@ -35,14 +35,14 @@ class Database:
         self.initial_prop_to_ariel()
 
     def initial_period_fit(self):
-        import period_fitting_tools
+        import data_tools
         total = len(self.names)
         count = 1
         for target in self.names:
-            obs = period_fitting_tools.read_obs_data(self.cursor, target)
+            obs = data_tools.read_obs_data(self.cursor, target)
             try:
                 print('Fitting ' + target + ' ('+str(count)+'/'+str(total)+')')
-                fit_period, fit_period_err, latest_tmid, latest_tmid_err, latest_epoch = period_fitting_tools.period_fit(obs)
+                fit_period, fit_period_err, latest_tmid, latest_tmid_err, latest_epoch = data_tools.period_fit(obs)
                 self.update('TARGET_DATA', 'FitPeriod', target, fit_period)
                 self.update('TARGET_DATA', 'FitPeriodErr', target, fit_period_err)
                 self.update('TARGET_DATA', 'CurrentPeriod', target, fit_period)
@@ -70,7 +70,7 @@ class Database:
 
                 start_period = self.cursor.execute('SELECT PeriodStart FROM TARGET_DATA WHERE Name = \''+target+'\'').fetchall()[0]
 
-                if period_fitting_tools.check_better_period(start_period, fit_period, fit_period_err):
+                if data_tools.check_better_period(start_period, fit_period, fit_period_err):
                     self.update('TARGET_DATA', 'FitBetter', target, True)
 
                 count += 1
@@ -86,7 +86,7 @@ class Database:
         self.db.commit()
 
     def initial_prop_to_ariel(self):
-        import propagation_tools
+        import data_tools
         self.cursor.execute('SELECT Name, CurrentPeriod, CurrentPeriodErr, LastObs, LastObsErr, Duration FROM TARGET_DATA '
                             'WHERE CurrentPeriodErr NOT NULL AND LastObsErr NOT NULL')
         rows = self.cursor.fetchall()
@@ -95,7 +95,7 @@ class Database:
             self.cursor.execute('SELECT * FROM \'' + name + '\'')
             observations = len(self.cursor.fetchall())
             try:
-                err_tot, percent, loss = propagation_tools.prop_forwards(row, observations)
+                err_tot, percent, loss = data_tools.prop_forwards(row, observations)
             except Warning:
                 pass
 
@@ -115,7 +115,7 @@ class Database:
         return targets
 
     def transit_forecast(self, start, end):
-        import forecast_tools
+        import observation_tools
         import datetime
 
         #self.cursor.execute('DROP TABLE IF EXISTS ALL_TRANSITS')
@@ -134,8 +134,8 @@ class Database:
         max_transit = datetime.datetime(year=2019, month=6, day=12)
         for name in self.names:
             print('Forecasting ' + name + ' ('+str(count)+'/'+str(total)+')')
-            data = forecast_tools.read_data(self.cursor, name)
-            transits = forecast_tools.transit_forecast(data, name, start, end)
+            data = observation_tools.read_data(self.cursor, name)
+            transits = observation_tools.transit_forecast(data, name, start, end)
 
             for transit in transits:
                 #string = 'INSERT INTO ALL_TRANSITS (Center, Name, Ingress, Egress, Duration, RA, Dec, PercentLoss, Epoch) VALUES ( \'' + str(
@@ -164,12 +164,12 @@ class Database:
         self.db.commit()
 
     def load_telescope_data(self):
-        import scheduling_tools
+        import observation_tools
         self.cursor.execute('SELECT * FROM TELESCOPES')
         rows = self.cursor.fetchall()
         telescopes = []
         for row in rows:
-            new_telescope = scheduling_tools.Telescope()
+            new_telescope = observation_tools.Telescope()
             new_telescope.gen_from_database(row)
             telescopes.append(new_telescope)
 
@@ -177,7 +177,7 @@ class Database:
 
     def obtain_upcoming_transits(self, start_date):
         import datetime
-        import scheduling_tools
+        import observation_tools
         end_date = start_date + datetime.timedelta(days=7)
         self.cursor.execute('SELECT * FROM DEEP_TRANSITS WHERE Center BETWEEN "'+str(start_date.date())+' 00:00:00"'
                                                                         ' AND "'+str(end_date.date())+' 00:00:00"')
@@ -185,7 +185,7 @@ class Database:
         self.load_telescope_data()
         transits = []
         for row in rows:
-            new_transit = scheduling_tools.Transit()
+            new_transit = observation_tools.Transit()
             new_transit.gen_from_database(row)
             if new_transit.check_visibility_telescopes(self.telescopes):
                 if new_transit.loss is None:
@@ -294,9 +294,8 @@ class Database:
                     self.add_new_observation(observation[0], new_epoch, new_tmid, new_tmid_err, telescope.name, true_center)
 
     def add_new_observation(self, name, epoch, tmid, tmid_err, telescope, true_center):
-        import period_fitting_tools
-        import propagation_tools
-        import forecast_tools
+        import data_tools
+        import observation_tools
         from sqlite3 import IntegrityError
         from datetime import timedelta
         import julian
@@ -327,9 +326,9 @@ class Database:
             pass
         #print(name, new_id, epoch, tmid, tmid_err)
         self.db.commit()
-        observations = period_fitting_tools.read_obs_data(self.cursor, name)
+        observations = data_tools.read_obs_data(self.cursor, name)
         try:
-            new_period, new_period_err, tmid_max, tmid_max_err, last_epoch = period_fitting_tools.period_fit(observations)
+            new_period, new_period_err, tmid_max, tmid_max_err, last_epoch = data_tools.period_fit(observations)
             #print(name, new_period, new_period_err, tmid_max, tmid_max_err, last_epoch, len(observations))
             self.update('TARGET_DATA', 'CurrentPeriod', name, new_period)
             self.update('TARGET_DATA', 'CurrentPeriodErr', name, new_period_err)
@@ -346,7 +345,7 @@ class Database:
             if len(data) != 0:
                 data_row = data[0]
                 if data_row[3] < (julian.to_jd(datetime.datetime(year=2029, month=6, day=12, hour=0, minute=0, second=0), fmt='jd') - 2400000):
-                    err_tot, percent, loss = propagation_tools.prop_forwards(data_row, len(observations))
+                    err_tot, percent, loss = data_tools.prop_forwards(data_row, len(observations))
                     #print('new:', percent)
                     self.update('TARGET_DATA', 'ErrAtAriel', name, err_tot)
                     self.update('TARGET_DATA', 'PercentLoss', name, percent)
@@ -359,7 +358,7 @@ class Database:
                     dec = row[2]
                     data = [tmid_max, new_period, duration, ra, dec, percent, last_epoch, err_tot]
                     current_dt = julian.from_jd(tmid_max + 2400000, fmt='jd')
-                    new_transits = forecast_tools.transit_forecast(data, name, current_dt, current_dt + timedelta(days=28))
+                    new_transits = observation_tools.transit_forecast(data, name, current_dt, current_dt + timedelta(days=28))
                     self.cursor.execute('DELETE FROM DEEP_TRANSITS WHERE Name = \''+name+'\' AND Center > "'+str(current_dt)+'"')
                     for transit in new_transits:
                         string = 'INSERT INTO DEEP_TRANSITS (Center, Name, Ingress, Egress, Duration, RA, Dec, PercentLoss, Epoch) VALUES ( \'' + str(

@@ -113,9 +113,9 @@ def main():
             0] + '\'(ObID VARCHAR(25), Epoch REAL, ObsCenter DECIMAL(16,8), ObsCenterErr DECIMAL(16,8), TrueCenter DECIMAL(16,8), TrueCenterErr DECIMAL(16,8), ObsDepth DECIMAL(16,8), ObsDepthErr DECIMAL(16,8), ObsDuration DECIMAL(16,8), ObsDurationErr DECIMAL(16,8), Source VARCHAR(25), UNIQUE(ObsCenter))')
     db.commit()
 
-    import database_tools
+    import actions
     from datetime import datetime, timedelta
-    database = database_tools.Database(database_name)
+    database = actions.Database(database_name)
     database.run_queries()
 
     start_date = datetime.today()
