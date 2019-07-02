@@ -63,11 +63,12 @@ def run_simulation(database):
     totals = []
     counts = []
     dates = []
+    interval = timedelta(days=7)
     while current_date < end_date:
-        current_date += timedelta(days=7)
-        database.make_schedules(current_date, database.mode)
-        database.simulate_observations(current_date, current_date + timedelta(days=7))
-        time_since_forecast += timedelta(days=7)
+        current_date += interval
+        database.make_schedules(current_date, interval, database.mode)
+        database.simulate_observations(current_date, interval)
+        time_since_forecast += interval
         if time_since_forecast >= limit:
             count, total = database.check_constrained(current_date)
             print('Forecasting on:', current_date)
@@ -82,7 +83,6 @@ def run_simulation(database):
     return counts, totals, dates
 
 
-
 def write_count_results(counts, totals, dates, sim_name):
     outfile = sim_name+'.csv'
     with open(outfile, 'w') as f:
@@ -94,22 +94,18 @@ def write_count_results(counts, totals, dates, sim_name):
 
 def main():
     from os import chdir
-    import actions
+    import actions2
     threshold, telescope_file, mode = parse_arguments()
     sim_name = create_folder(telescope_file, threshold, mode)
-    datbase_name = copy_database(sim_name)
+    database_name = copy_database(sim_name)
     chdir(sim_name)
 
-    database = actions.Database(datbase_name, telescope_file, mode, threshold)
+    database = actions2.Database(database_name, telescope_file, mode, threshold)
     populate_telescopes(database)
 
     counts, totals, dates = run_simulation(database)
     write_count_results(counts, totals, dates, sim_name)
     database.store_results(counts[-1], totals[-1])
-
-
-
-
 
 
 if __name__ == '__main__':

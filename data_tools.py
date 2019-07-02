@@ -17,6 +17,7 @@ def period_fit(observations):
     weights = []
     tmid_max = 0
     tmid_max_err = 0
+    true_tmid_max = 0
     for ob in observations:
         epochs.append(ob.epoch)
         tmids.append(ob.tmid)
@@ -37,14 +38,14 @@ def period_fit(observations):
             fit_period = poly[0]
             fit_period_err = np.sqrt(cov[0][0])
 
-            return fit_period, fit_period_err, tmid_max, tmid_max_err, max(epochs)
+            return fit_period, fit_period_err, tmid_max, tmid_max_err, max(epochs) #, true_tmid_max
 
     except ValueError:
         pass
     except np.linalg.LinAlgError:
-        print('error_here1')
+        pass
     except TypeError:
-        print('error_here2')
+        pass
     raise Warning
 
 

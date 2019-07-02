@@ -252,3 +252,19 @@ class Transit2:
             break
         return accept
 
+
+def find_highest_id(ids_raw):
+    ids = []
+    for id in ids_raw:
+        ids.append(id[0])
+    try:
+        highest_id = max(ids)
+        if highest_id < 10000:
+            new_id = 10000
+        else:
+            new_id = highest_id + 1
+
+    except ValueError:
+        new_id = 10000
+    return new_id
+

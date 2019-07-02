@@ -37,7 +37,6 @@ class Database:
                     target.EXO_query()
                     target.EXO_used = True
                 target.write_query_data(self.cursor, self.db)
-                #print(target.__dict__.values())
             count += 1
         self.initial_period_fit()
         self.initial_prop_to_ariel()
@@ -66,8 +65,6 @@ class Database:
                     self.update('TARGET_DATA', 'LastObsErr', target, latest_tmid_err)
                     self.update('TARGET_DATA', 'LastEpoch', target, latest_epoch)
 
-
-
                 elif latest_tmid > self.cursor.execute('SELECT LastObs FROM TARGET_DATA WHERE Name = \''+target+'\'').fetchall()[0][0]:
                     self.update('TARGET_DATA', 'LastObs', target, latest_tmid)
                     self.update('TARGET_DATA', 'LastObsErr', target, latest_tmid_err)
@@ -87,11 +84,11 @@ class Database:
                 print('Fit for '+target+' failed')
                 count += 1
 
-        self.cursor.execute('UPDATE TARGET_DATA SET CurrentPeriod = PeriodStart, CurrentPeriodErr = PeriodStartErr WHERE FitPeriod IS NULL')
-        self.cursor.execute(
-            'UPDATE TARGET_DATA SET TruePeriod = PeriodStart, TruePeriodErr = PeriodStartErr WHERE FitPeriod IS NULL')
-        self.cursor.execute('UPDATE TARGET_DATA SET TrueEpoch = LastEpoch WHERE TrueEpoch IS NULL')
-        self.db.commit()
+                self.cursor.execute('UPDATE TARGET_DATA SET CurrentPeriod = PeriodStart, CurrentPeriodErr = PeriodStartErr WHERE FitPeriod IS NULL')
+                self.cursor.execute(
+                    'UPDATE TARGET_DATA SET TruePeriod = PeriodStart, TruePeriodErr = PeriodStartErr WHERE FitPeriod IS NULL')
+                self.cursor.execute('UPDATE TARGET_DATA SET TrueEpoch = LastEpoch WHERE TrueEpoch IS NULL')
+                self.db.commit()
 
     def initial_prop_to_ariel(self):
         import data_tools
@@ -104,19 +101,16 @@ class Database:
             observations = len(self.cursor.fetchall())
             try:
                 err_tot, percent, loss = data_tools.prop_forwards(row, observations)
+                self.update('TARGET_DATA', 'ErrAtAriel', name, err_tot)
+                self.update('TARGET_DATA', 'PercentLoss', name, percent)
+                self.update('TARGET_DATA', 'LossAtAriel', name, loss)
+                self.update('TARGET_DATA', 'ErrAtArielStart', name, err_tot)
+                self.update('TARGET_DATA', 'PercentLossStart', name, percent)
+                self.update('TARGET_DATA', 'LossAtArielStart', name, loss)
             except Warning:
                 pass
 
-            self.update('TARGET_DATA', 'ErrAtAriel', name, err_tot)
-            self.update('TARGET_DATA', 'PercentLoss', name, percent)
-            self.update('TARGET_DATA', 'LossAtAriel', name, loss)
-            self.update('TARGET_DATA', 'ErrAtArielStart', name, err_tot)
-            self.update('TARGET_DATA', 'PercentLossStart', name, percent)
-            self.update('TARGET_DATA', 'LossAtArielStart', name, loss)
-
         self.db.commit()
-
-        #
 
     def targets_missing_data(self):
         targets = self.cursor.execute('SELECT * FROM missing_data')
