@@ -178,7 +178,7 @@ def transit_forecast(data, name, start, end):
     transits = []
     while current_ephemeris < target_dt:
         if current_ephemeris > current_dt:
-            candidate = Transit(current_ephemeris, duration, ra, dec, period, loss, name, epoch, error)
+            candidate = Transit2(current_ephemeris, duration, ra, dec, period, loss, name, epoch, error)
             if candidate.check_visibility_general():
                 transits.append(candidate)
         current_ephemeris += period
@@ -187,7 +187,7 @@ def transit_forecast(data, name, start, end):
     return transits
 
 
-class Transit:
+class Transit2:
     def __init__(self, center, duration, ra, dec, period, percentloss, name, epoch, error):
         self.date = center.replace(hour=0, minute=0, second=0, microsecond=0)
         self.name = name

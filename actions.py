@@ -1,10 +1,13 @@
 class Database:
-    def __init__(self, database):
+    def __init__(self, database, telescopes, mode, threshold):
         import sqlite3
         self.db = sqlite3.connect(database)
         self.cursor = self.db.cursor()
         self.names = self.read_target_names()
         self.telescopes = []
+        self.telescope_file = telescopes.split('/')[-1].split('.')[0]
+        self.mode = mode
+        self.threshold = threshold
 
     def update(self, table, column, row, value):
         self.cursor.execute('UPDATE '+table+' SET '+column+' = '+str(value)+' WHERE Name = \''+row+'\'')
@@ -22,14 +25,18 @@ class Database:
         total = len(target_names)
         count = 1
         for name in target_names:
-            print('Querying ' + name + ' ('+str(count)+'/'+str(total)+')')
-            target = query_tools.Target(name)
-            target.ETD_query()
-            if list(target.__dict__.values()).__contains__(None):
-                target.EXO_query()
-                target.EXO_used = True
-            target.write_query_data(self.cursor, self.db)
-            #print(target.__dict__.values())
+            try:
+                float(name[:-1])
+                print('Target ' + name + ' is not real (' + str(count) + '/' + str(total) + ')')
+            except ValueError:
+                print('Querying ' + name + ' ('+str(count)+'/'+str(total)+')')
+                target = query_tools.Target(name)
+                target.ETD_query()
+                if list(target.__dict__.values()).__contains__(None):
+                    target.EXO_query()
+                    target.EXO_used = True
+                target.write_query_data(self.cursor, self.db)
+                #print(target.__dict__.values())
             count += 1
         self.initial_period_fit()
         self.initial_prop_to_ariel()
@@ -117,13 +124,14 @@ class Database:
     def transit_forecast(self, start, end):
         import observation_tools
         import datetime
+        import julian
 
         #self.cursor.execute('DROP TABLE IF EXISTS ALL_TRANSITS')
         self.cursor.execute('CREATE TABLE IF NOT EXISTS ALL_TRANSITS(Center DATETIME, Name VARCHAR(20), Ingress DATETIME, Egress DATETIME, Duration TIME, RA DECIMAL(9,7), Dec DECIMAL(9,7), PercentLoss REAL, Epoch REAL)')
         #self.cursor.execute('DROP TABLE IF EXISTS DEEP_TRANSITS')
         self.cursor.execute('CREATE TABLE IF NOT EXISTS DEEP_TRANSITS(Center DATETIME, Name VARCHAR(20), Ingress DATETIME, Egress DATETIME, Duration TIME, RA DECIMAL(9,7), Dec DECIMAL(9,7), PercentLoss REAL, Epoch REAL, ErrAtAriel DECIMAL(16,8))')
-
-        rows = self.cursor.execute('SELECT Name FROM TARGET_DATA WHERE Depth > 10.0').fetchall()
+        start_jd = julian.to_jd(start, fmt='jd') - 2400000
+        rows = self.cursor.execute('SELECT Name FROM TARGET_DATA WHERE Depth > 10.0 AND "'+str(start_jd)+'" > LastObs AND (ErrAtAriel*24*60 > '+str(self.threshold)+' OR ErrAtAriel IS NULL)').fetchall()
         deep_names = []
         for row in rows:
             deep_names.append(row[0])
@@ -133,7 +141,7 @@ class Database:
         count = 1
         max_transit = datetime.datetime(year=2019, month=6, day=12)
         for name in self.names:
-            print('Forecasting ' + name + ' ('+str(count)+'/'+str(total)+')')
+            # print('Forecasting ' + name + ' ('+str(count)+'/'+str(total)+')')
             data = observation_tools.read_data(self.cursor, name)
             transits = observation_tools.transit_forecast(data, name, start, end)
 
@@ -188,17 +196,17 @@ class Database:
             new_transit = observation_tools.Transit()
             new_transit.gen_from_database(row)
             if new_transit.check_visibility_telescopes(self.telescopes):
-                if new_transit.loss is None:
+                if new_transit.error is None:
                     new_transit.loss = 1000
                     new_transit.error = 1000
                 #if new_transit.loss > 1:
                 #    print(new_transit.name+' IS needed, current loss: '+str(new_transit.loss))
                 #    transits.append(new_transit)
-                if new_transit.error*24*60 > 5:
+                if new_transit.error*24*60 > self.threshold:
                     print(new_transit.name+' IS needed, current error: '+str(new_transit.error*24*60))
                     transits.append(new_transit)
-                else:
-                    print(new_transit.name+' NOT needed, current loss: '+str(new_transit.error*24*60))
+                #else:
+                    #print(new_transit.name+' NOT needed, current loss: '+str(new_transit.error*24*60))
                 period = self.cursor.execute('SELECT CurrentPeriod FROM TARGET_DATA WHERE Name = \''+new_transit.name+'\'').fetchall()[0]
                 #if period[0] > 10:
                     #print('LONG PERIOD TRANSIT: '+new_transit.name, new_transit.center, new_transit.ingress, new_transit.egress)
@@ -207,7 +215,7 @@ class Database:
 
         return transits
 
-    def make_schedules(self, start_date):
+    def make_schedules(self, start_date, mode):
         from datetime import datetime, timedelta
         from sqlite3 import IntegrityError
 
@@ -222,50 +230,147 @@ class Database:
             for transit in transits:
                 if telescope.name in transit.telescope:
                     matching_transits.append(transit)
-            scheduled_one = False
-            for transit in matching_transits:
-                #if not scheduled_one:
-                self.cursor.execute('SELECT RunStart, RunEnd FROM '+telescope.name)
-                scheduled = self.cursor.fetchall()
-                continuum = timedelta(minutes=45)
-                new_start_time = transit.ingress - continuum
-                new_end_time = transit.egress + continuum
-                duration = new_end_time - new_start_time
-                if len(scheduled) == 0:
-                    try:
-                        self.cursor.execute('INSERT INTO '+telescope.name+' VALUES ("'+transit.name+'", '+str(transit.ra) +
-                                        ', ' + str(transit.dec)+', "'+str(transit.center)+'", "'+str(new_start_time)+'", "'+str(new_end_time)+'", "' +
-                                        str(duration) + '", '+str(transit.epoch)+')')
-                        scheduled_one = True
-                    except IntegrityError:
-                        pass
-                else:
-                    space = True
-                    for single in scheduled:
+            if mode == 'unlimited':
+                #scheduled_one = False
+                for transit in matching_transits:
+                    #if not scheduled_one:
+                    self.cursor.execute('SELECT RunStart, RunEnd FROM '+telescope.name)
+                    scheduled = self.cursor.fetchall()
+                    continuum = timedelta(minutes=45)
+                    new_start_time = transit.ingress - continuum
+                    new_end_time = transit.egress + continuum
+                    duration = new_end_time - new_start_time
+                    if len(scheduled) == 0:
                         try:
-                            start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S.%f')
-                            end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S.%f')
-                        except ValueError:
-                            start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S')
-                            end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S')
-
-                        if start_time < new_start_time < end_time:
-                            space = False
-                        if start_time < new_end_time < end_time:
-                            space = False
-                        if new_start_time < start_time and end_time < new_end_time:
-                            space = False
-                    if space:
-                        try:
-                            self.cursor.execute(
-                            'INSERT INTO ' + telescope.name + ' VALUES ("' + transit.name + '", ' + str(transit.ra) +
-                            ', ' + str(transit.dec) + ', "'+str(transit.center) + '", "' + str(new_start_time) + '", "' + str(new_end_time) + '", "' +
-                            str(duration) + '", ' + str(transit.epoch) + ')')
+                            self.cursor.execute('INSERT INTO '+telescope.name+' VALUES ("'+transit.name+'", '+str(transit.ra) +
+                                            ', ' + str(transit.dec)+', "'+str(transit.center)+'", "'+str(new_start_time)+'", "'+str(new_end_time)+'", "' +
+                                            str(duration) + '", '+str(transit.epoch)+')')
                             scheduled_one = True
                         except IntegrityError:
                             pass
+                    else:
+                        space = True
+                        for single in scheduled:
+                            try:
+                                start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S.%f')
+                                end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S.%f')
+                            except ValueError:
+                                start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S')
+                                end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S')
 
-                self.db.commit()
+                            if start_time < new_start_time < end_time:
+                                space = False
+                            if start_time < new_end_time < end_time:
+                                space = False
+                            if new_start_time < start_time and end_time < new_end_time:
+                                space = False
+                        if space:
+                            try:
+                                self.cursor.execute(
+                                'INSERT INTO ' + telescope.name + ' VALUES ("' + transit.name + '", ' + str(transit.ra) +
+                                ', ' + str(transit.dec) + ', "'+str(transit.center) + '", "' + str(new_start_time) + '", "' + str(new_end_time) + '", "' +
+                                str(duration) + '", ' + str(transit.epoch) + ')')
+                                scheduled_one = True
+                            except IntegrityError:
+                                pass
+            if mode == '1perweek':
+                scheduled_one = False
+                for transit in matching_transits:
+                    if not scheduled_one:
+                        self.cursor.execute('SELECT RunStart, RunEnd FROM ' + telescope.name)
+                        scheduled = self.cursor.fetchall()
+                        continuum = timedelta(minutes=45)
+                        new_start_time = transit.ingress - continuum
+                        new_end_time = transit.egress + continuum
+                        duration = new_end_time - new_start_time
+                        if len(scheduled) == 0:
+                            try:
+                                self.cursor.execute(
+                                    'INSERT INTO ' + telescope.name + ' VALUES ("' + transit.name + '", ' + str(
+                                        transit.ra) +
+                                    ', ' + str(transit.dec) + ', "' + str(transit.center) + '", "' + str(
+                                        new_start_time) + '", "' + str(new_end_time) + '", "' +
+                                    str(duration) + '", ' + str(transit.epoch) + ')')
+                                scheduled_one = True
+                            except IntegrityError:
+                                pass
+                        else:
+                            space = True
+                            for single in scheduled:
+                                try:
+                                    start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S.%f')
+                                    end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S.%f')
+                                except ValueError:
+                                    start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S')
+                                    end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S')
+
+                                if start_time < new_start_time < end_time:
+                                    space = False
+                                if start_time < new_end_time < end_time:
+                                    space = False
+                                if new_start_time < start_time and end_time < new_end_time:
+                                    space = False
+                            if space:
+                                try:
+                                    self.cursor.execute(
+                                        'INSERT INTO ' + telescope.name + ' VALUES ("' + transit.name + '", ' + str(
+                                            transit.ra) +
+                                        ', ' + str(transit.dec) + ', "' + str(transit.center) + '", "' + str(
+                                            new_start_time) + '", "' + str(new_end_time) + '", "' +
+                                        str(duration) + '", ' + str(transit.epoch) + ')')
+                                    scheduled_one = True
+                                except IntegrityError:
+                                    pass
+            if mode == '2perweek':
+                obs_scheduled = 0
+                for transit in matching_transits:
+                    if obs_scheduled < 2:
+                        self.cursor.execute('SELECT RunStart, RunEnd FROM ' + telescope.name)
+                        scheduled = self.cursor.fetchall()
+                        continuum = timedelta(minutes=45)
+                        new_start_time = transit.ingress - continuum
+                        new_end_time = transit.egress + continuum
+                        duration = new_end_time - new_start_time
+                        if len(scheduled) == 0:
+                            try:
+                                self.cursor.execute(
+                                    'INSERT INTO ' + telescope.name + ' VALUES ("' + transit.name + '", ' + str(
+                                        transit.ra) +
+                                    ', ' + str(transit.dec) + ', "' + str(transit.center) + '", "' + str(
+                                        new_start_time) + '", "' + str(new_end_time) + '", "' +
+                                    str(duration) + '", ' + str(transit.epoch) + ')')
+                                obs_scheduled += 1
+                            except IntegrityError:
+                                pass
+                        else:
+                            space = True
+                            for single in scheduled:
+                                try:
+                                    start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S.%f')
+                                    end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S.%f')
+                                except ValueError:
+                                    start_time = datetime.strptime(single[0], '%Y-%m-%d %H:%M:%S')
+                                    end_time = datetime.strptime(single[1], '%Y-%m-%d %H:%M:%S')
+
+                                if start_time < new_start_time < end_time:
+                                    space = False
+                                if start_time < new_end_time < end_time:
+                                    space = False
+                                if new_start_time < start_time and end_time < new_end_time:
+                                    space = False
+                            if space:
+                                try:
+                                    self.cursor.execute(
+                                        'INSERT INTO ' + telescope.name + ' VALUES ("' + transit.name + '", ' + str(
+                                            transit.ra) +
+                                        ', ' + str(transit.dec) + ', "' + str(transit.center) + '", "' + str(
+                                            new_start_time) + '", "' + str(new_end_time) + '", "' +
+                                        str(duration) + '", ' + str(transit.epoch) + ')')
+                                    obs_scheduled += 1
+                                except IntegrityError:
+                                    pass
+
+        self.db.commit()
 
     def simulate_observations(self, start_date, end_date):
         import observation_tools
@@ -344,7 +449,7 @@ class Database:
 
             if len(data) != 0:
                 data_row = data[0]
-                if data_row[3] < (julian.to_jd(datetime.datetime(year=2029, month=6, day=12, hour=0, minute=0, second=0), fmt='jd') - 2400000):
+                if data_row[3] < (julian.to_jd(datetime.datetime(year=2030, month=6, day=12, hour=0, minute=0, second=0), fmt='jd') - 2400000):
                     err_tot, percent, loss = data_tools.prop_forwards(data_row, len(observations))
                     #print('new:', percent)
                     self.update('TARGET_DATA', 'ErrAtAriel', name, err_tot)
@@ -389,6 +494,20 @@ class Database:
         lowest = min(rows)
         #print(lowest)
         return datetime.datetime.strptime(lowest[0], '%Y-%m-%d %H:%M:%S.%f')
+
+    def check_constrained(self, current):
+        import julian
+        current_jd = julian.to_jd(current, fmt='jd') - 2400000
+        total = len(self.cursor.execute('SELECT Name FROM TARGET_DATA WHERE LastObs < '+str(current_jd)+' AND Depth > 10.0').fetchall())
+        count = len(self.cursor.execute('SELECT Name FROM TARGET_DATA WHERE LastObs < '+str(current_jd)+' AND Depth > 10.0 AND ErrAtAriel*24*60 < '+str(self.threshold)).fetchall())
+        print('Constrained '+str(count)+'/'+str(total)+' targets on '+str(current.date()))
+        return count, total
+
+    def store_results(self, count, total):
+        self.cursor.execute('CREATE TABLE IF NOT EXISTS RESULTS (Network VARCHAR(25), Mode VARCHAR(25), Accuracy REAL, Constrained REAL, Total REAL, Percent REAL)')
+        percent = count/total*100
+        self.cursor.execute('INSERT INTO RESULTS VALUES ("'+self.telescope_file+'", "'+self.mode+'", '+str(self.threshold)+', '+str(count)+', '+str(total)+', '+str(percent)+')')
+        self.db.commit()
 
 
 def connect(database):

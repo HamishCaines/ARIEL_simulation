@@ -4,6 +4,7 @@ import sqlite3
 def load_planet_data(filename):
     targets = []
     try:
+        print(filename)
         file = open(filename, 'r')
         line = file.readline().split('\n')[0].split(',')
         columns = line
@@ -20,7 +21,7 @@ def load_planet_data(filename):
 
 def obtain_types(values):
     types = []
-    for value in values:
+    for value in values[:-1]:
         if value != '':
             try:
                 float(value)
@@ -29,6 +30,7 @@ def obtain_types(values):
                 types.append('VARCHAR(20)')
         else:
             types.append('DECIMAL(16,8)')
+    types.append('BOOLEAN')
     return types
 
 
@@ -74,7 +76,6 @@ def generate_sql_table_from_csv(filename, table_name, cursor):
     #if filename == '../database/starting_data.csv':
     #    targets = targets[:6]
     table_string = table_string_builder(clean_columns, types, table_name)
-    print(table_string)
     # cursor.execute('DROP TABLE '+table_name)
     cursor.execute(table_string)
 
@@ -85,11 +86,12 @@ def generate_sql_table_from_csv(filename, table_name, cursor):
             cursor.execute(data_string)
         except sqlite3.IntegrityError:
             pass
+    return targets
 
 
 def main():
-    database_name = 'clean_KM_newprop.db'
-    start_file = '../database/starting_data.csv'
+    database_name = 'clean3.db'
+    start_file = '../database/realfake_data2.csv'
     telescope_file = '../database/telescopes.csv'
 
     tel_cols, telescopes = load_planet_data(telescope_file)
@@ -98,19 +100,19 @@ def main():
     cursor = db.cursor()
     generate_sql_table_from_csv(start_file, 'TARGET_DATA', cursor)
     db.commit()
-    generate_sql_table_from_csv(telescope_file, 'TELESCOPES', cursor)
+    #generate_sql_table_from_csv(telescope_file, 'TELESCOPES', cursor)
     db.commit()
-    for telescope in telescopes:
-        cursor.execute('DROP TABLE IF EXISTS ' + telescope[0])
-        cursor.execute('CREATE TABLE IF NOT EXISTS ' + telescope[
-            0] + '(Target VARCHAR(25), RA DECIMAL(16,8), Dec DECIMAL(16,8), ObsCenter DATETIME, RunStart DATETIME, RunEnd DATETIME, RunDuration TIME, Epoch REAL, UNIQUE(RunStart))')
-        print(telescope[0])
+    #for telescope in telescopes:
+    #    cursor.execute('DROP TABLE IF EXISTS ' + telescope[0])
+    #    cursor.execute('CREATE TABLE IF NOT EXISTS ' + telescope[
+    #        0] + '(Target VARCHAR(25), RA DECIMAL(16,8), Dec DECIMAL(16,8), ObsCenter DATETIME, RunStart DATETIME, RunEnd DATETIME, RunDuration TIME, Epoch REAL, UNIQUE(RunStart))')
+    #    print(telescope[0])
 
     cursor.execute('SELECT Name FROM TARGET_DATA')
     names = cursor.fetchall()
     for name in names:
         cursor.execute('CREATE TABLE IF NOT EXISTS \'' + name[
-            0] + '\'(ObID VARCHAR(25), Epoch REAL, ObsCenter DECIMAL(16,8), ObsCenterErr DECIMAL(16,8), TrueCenter DECIMAL(16,8), TrueCenterErr DECIMAL(16,8), ObsDepth DECIMAL(16,8), ObsDepthErr DECIMAL(16,8), ObsDuration DECIMAL(16,8), ObsDurationErr DECIMAL(16,8), Source VARCHAR(25), UNIQUE(ObsCenter))')
+            0] + '\'(ObID REAL, Epoch REAL, ObsCenter DECIMAL(16,8), ObsCenterErr DECIMAL(16,8), TrueCenter DECIMAL(16,8), TrueCenterErr DECIMAL(16,8), ObsDepth DECIMAL(16,8), ObsDepthErr DECIMAL(16,8), ObsDuration DECIMAL(16,8), ObsDurationErr DECIMAL(16,8), Source VARCHAR(25), UNIQUE(ObsCenter))')
     db.commit()
 
     import actions

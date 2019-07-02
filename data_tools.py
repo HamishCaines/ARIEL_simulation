@@ -32,19 +32,19 @@ def period_fit(observations):
     try:
         if len(epochs) >= 3:
             poly_both = np.polyfit(epochs, tmids, 1, cov=True, w=weights)
+
             poly, cov = poly_both[0], poly_both[1]
             fit_period = poly[0]
             fit_period_err = np.sqrt(cov[0][0])
 
             return fit_period, fit_period_err, tmid_max, tmid_max_err, max(epochs)
 
-
     except ValueError:
         pass
     except np.linalg.LinAlgError:
-        pass
+        print('error_here1')
     except TypeError:
-        pass
+        print('error_here2')
     raise Warning
 
 
@@ -84,6 +84,7 @@ def prop_forwards(row, observations):
     err_tot = 'NULL'
     current = tmid
     count = 0
+
     if tmid_err is not None and period_err is not None:
         if current < ariel_jd:
             while current < ariel_jd:
@@ -98,7 +99,12 @@ def prop_forwards(row, observations):
                 loss = False
         else:
             print('End of sim reached')
-            raise Warning
+            err_tot = tmid_err
+            percent = err_tot*24*60/duration*100
+            if percent >= 100.0:
+                loss = True
+            else:
+                loss = False
     else:
         percent = 1000
         loss = True
