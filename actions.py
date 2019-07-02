@@ -5,7 +5,8 @@ class Database:
         self.cursor = self.db.cursor()
         self.names = self.read_target_names()
         self.telescopes = []
-        self.telescope_file = telescopes.split('/')[-1].split('.')[0]
+        self.telescope_file = telescopes
+        self.telescope_setup = telescopes.split('/')[-1].split('.')[0]
         self.mode = mode
         self.threshold = threshold
 
@@ -506,7 +507,7 @@ class Database:
     def store_results(self, count, total):
         self.cursor.execute('CREATE TABLE IF NOT EXISTS RESULTS (Network VARCHAR(25), Mode VARCHAR(25), Accuracy REAL, Constrained REAL, Total REAL, Percent REAL)')
         percent = count/total*100
-        self.cursor.execute('INSERT INTO RESULTS VALUES ("'+self.telescope_file+'", "'+self.mode+'", '+str(self.threshold)+', '+str(count)+', '+str(total)+', '+str(percent)+')')
+        self.cursor.execute('INSERT INTO RESULTS VALUES ("'+self.telescope_setup+'", "'+self.mode+'", '+str(self.threshold)+', '+str(count)+', '+str(total)+', '+str(percent)+')')
         self.db.commit()
 
 
