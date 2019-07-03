@@ -1,118 +1,109 @@
-def obtain_targets(cursor):
-    cursor.execute('SELECT Name FROM TARGET_DATA')
-    rows = cursor.fetchall()
-    targets = []
-    for row in rows:
-        targets.append(row[0])
-    return targets
+#################################################################
+# Code to query databases for observation and target data       #
+# Called by methods within database_generator.py                #
+#                                                               #
+# Hamish Caines 07-2019                                         #
+#################################################################
 
 
 class Target:
+    """
+    Target object, contains empty variables for information obtained from queries
+    Functions within make the queries and populate variables
+    """
     def __init__(self, name):
+        """
+        Constructor for new information about a single target
+        :param name: Name of target planet
+        """
         self.name = name
-        self.star = name[:-1]
-        self.planet = name[-1]
+        self.star = name[:-1]  # extract star name
+        self.planet = name[-1]  # extract planet id
         self.ETD_obs = []
-        #self.query_period = None
-        #self.query_period_err = None
-        #self.query_epoch = None
         self.query_depth = None
         self.query_depth_err = None
-        #self.query_duration = None
-        #self.query_duration_err = None
         self.query_lastob = None
         self.query_lastob_err = None
         self.query_last_epoch = None
 
         self.depth_source = ''
-        #self.duration_source = None
 
-        #self.EXO_all_data = {}
         self.EXO_used = False
 
     def __str__(self):
         return self.star+self.planet
 
     def ETD_query(self):
+        """
+        Query the Exoplanet Target Database for observation data and store in object
+        """
         import re
         import requests
         import numpy as np
+        # build url for target
         url_base = 'http://var2.astro.cz/ETD/etd.php?'
         url = url_base + 'STARNAME=' + self.star + '&PLANET=' + self.planet
 
-        web_html = str(requests.get(url).content)
+        web_html = str(requests.get(url).content)  # obtain html from page for target
 
+        # obtain data from html using regular expressions
         obs_data = re.findall(
             "<tr valign=\\\\\\'top\\\\\\'><td>(\d+)<\/td><td class=\\\\\\'right\\\\\\'><b>([\d\.]+)<br\/><\/b>"
             "([\d\s\.\+\/-]+)<\/td><td>(\d+)<\/td><td>([+|\-\d\.\s]+)<\/td><td>([\d\.\s]+)\+\/-([\d\.\s]+)<\/td><td>"
             "([\d\.]+) ([\d\s\.\+\/-]+)<\/td><td>([\w]+)<\/td><td><b><a href=\\\\\\'etd-data\.php\?id=[\d]+\\\\\\' "
-            "target=\\\\\\'[\w]+\\\\\\' title=\\\\\\'get data\\\\\\'>(\d)",
-            web_html)
+            "target=\\\\\\'[\w]+\\\\\\' title=\\\\\\'get data\\\\\\'>(\d)", web_html)
 
-        epoch_data = re.findall("size=\\\\\\'7\\\\\\\' value=\\\\\\'([\d\.]+)\\\\\\'>[\S\s]+size=\\\\\\'12\\\\\\' value"
-                                "=\\\\\\'([\d\.]+)", web_html)
-
-        #try:
-        #    self.query_period = epoch_data[0][0]
-        #except IndexError:
-        #    self.query_period = None
-        #try:
-        #    self.query_epoch = epoch_data[0][1]
-        #except IndexError:
-        #    self.query_epoch = None
-
+        # initialise depth counters
         depth_count = 0
         depth_total = 0
         depth_err_total = 0
-        #duration_count = 0
-        #duration_total = 0
-        #duration_err_total = 0
+        # initialise latest observation variables
         max_tmid = 0
         max_tmid_err = 0
         max_epoch = 0
+        # iterate through observations
         for obs in obs_data:
             new_ob = Observation()
             new_ob.gen_from_ETD(obs)
 
+            # check quality assigned by ETD
             if new_ob.quality >= 3:
                 self.ETD_obs.append(new_ob)
 
+                # extract depth data and add to counters
                 if new_ob.depth_err is not None:
                     depth_total += new_ob.depth
                     depth_err_total += new_ob.depth_err * new_ob.depth_err
                     depth_count += 1
-                #if new_ob.duration_err is not None:
-                    #duration_total += new_ob.duration
-                    #duration_err_total += new_ob.duration_err * new_ob.duration_err
-                    #duration_count += 1
 
+                # extract and store tmid data
                 if new_ob.tmid > max_tmid:
                     max_tmid = new_ob.tmid
                     max_tmid_err = new_ob.tmid_err
                     max_epoch = new_ob.epoch
+
+        # store tmid data in object
         if max_tmid != 0:
             self.query_lastob = max_tmid
             self.query_lastob_err = max_tmid_err
             self.query_last_epoch = max_epoch
 
+        # calculate and store depth data
         try:
             self.query_depth = depth_total / depth_count
             self.query_depth_err = np.sqrt(depth_err_total) / depth_count
             self.depth_source = 'ETD'
-            # print('test ' + str(self.ETD_depth) + ' ' + str(self.ETD_depth_err))
         except ZeroDivisionError:
             pass
 
-        #try:
-        #    self.query_duration = duration_total / duration_count
-        #    self.query_duration_err = np.sqrt(duration_err_total) / duration_count
-            # print('dur test '+str(self.ETD_duration)+' '+str(self.ETD_duration_err))
-        #except ZeroDivisionError:
-        #    pass
-
     def EXO_query(self):
+        """
+        Query exoplanets.org for missing data and store in object
+        """
         import requests
         import re
+
+        # build url for specific target, many cases
         url_base = 'http://exoplanets.org/detail/'
         if self.star[0].isdigit():
             number = True
@@ -140,20 +131,25 @@ class Target:
         else:
             url = url_base + self.star + '_' + self.planet
 
+        # obtain html from url
         web_html = str(requests.get(url).content)
+
+        # check for valid planet
         invalid_check = re.findall("(Invalid Planet)", web_html)
         if invalid_check:
             print(url + ' is invalid')
         if not invalid_check:
+            # read data
             data = dict(re.findall("\"([\w]+)\":\[([\d\w\.\"\s\/\:\;\%]+)\]", web_html))
 
+            # extract required information and store in object
             try:
                 if self.query_depth is None:
                     if data['DEPTH'] != 'null':
-                        self.query_depth = float(data['DEPTH'])*1000  # convert from unitless to mmag
+                        self.query_depth = float(data['DEPTH']) * 1000  # convert from unitless to mmag
                         self.depth_source = 'EXO'
                         if data['DEPTHUPPER'] != 'null':
-                            self.query_depth_err = float(data['DEPTHUPPER'])*1000  # convert from unitless to mmag
+                            self.query_depth_err = float(data['DEPTHUPPER']) * 1000  # convert from unitless to mmag
 
                 if self.query_last_epoch is None:
                     if data['TT'] != 'null':
@@ -163,20 +159,14 @@ class Target:
             except KeyError:
                 pass
 
-            # Code below repeats for duration, not necessary as duration is in source data
-            #try:
-            #    if self.query_duration is None:
-            #        if data['T14'] != 'null':
-            #            self.query_duration = float(data['T14'])*24*60  # convert from days to minutes
-            #            if data['T14UPPER'] != 'null':
-            #                self.query_duration_err = float(data['T14UPPER'])*24*60
-            #except KeyError:
-            #    pass
-
-                #print(self.name, self.query_depth, self.query_depth_err)
-
     def write_query_data(self, cursor, db):
+        """
+        Store data from queries in database
+        :param cursor: Cursor connected to database: cursor
+        :param db: Database: database
+        """
         import sqlite3
+        # check for new data and store in database
         if self.query_depth is not None:
             cursor.execute('UPDATE TARGET_DATA SET Depth = '+str(self.query_depth)+' WHERE Name = \''+self.name+'\'')
             cursor.execute('UPDATE TARGET_DATA SET DepthSource = \''+self.depth_source+'\' WHERE Name = \''+self.name+'\'')
@@ -190,25 +180,29 @@ class Target:
             cursor.execute(
                 'UPDATE TARGET_DATA SET LastEpoch = ' + str(self.query_last_epoch) + ' WHERE Name = \'' + self.name + '\'')
 
+        # check number of observations and store in database
         if len(self.ETD_obs) != 0:
             cursor.execute('UPDATE TARGET_DATA SET NoOfObs = '+str(len(self.ETD_obs))+' WHERE Name = \''+self.name+'\'')
+            # store each observation in table for target
             for ob in self.ETD_obs:
-                #try:
-                #    cursor.execute('ALTER TABLE \''+self.name+'\' ADD Source VARCHAR(10)')
-                #except sqlite3.OperationalError:
-                #    pass
                 try:
                     cursor.execute('INSERT INTO \''+self.name+'\' VALUES ('+ob.obnumber+', '+str(ob.epoch)+', '+str(ob.tmid)+\
                     ', '+str(ob.tmid_err)+', NULL, NULL, '+str(ob.depth)+', '+str(ob.depth_err)+', '+str(ob.duration)+', '+\
                     str(ob.duration_err)+', \'ETD\')')
                 except sqlite3.IntegrityError:
                     print('Obs No. '+str(ob.obnumber)+' already exists')
-
         db.commit()
 
 
 class Observation:
+    """
+    Observation object, contains empty variables for observation data from queries
+    Populated by function within
+    """
     def __init__(self):
+        """
+        Null constructor
+        """
         self.obnumber = 0
         self.epoch = 0
         self.tmid = 0
@@ -221,6 +215,10 @@ class Observation:
         self.OminusC = 0
 
     def gen_from_ETD(self, match):
+        """
+        Populute Observation object with data obtained for a single observation from ETD
+        :param match: list of variables for a single observations
+        """
         self.obnumber = match[0]
         self.tmid = float(match[1])  # HJD
         try:
@@ -248,4 +246,3 @@ class Observation:
             self.quality = int(match[10])
         except IndexError:
             pass
-

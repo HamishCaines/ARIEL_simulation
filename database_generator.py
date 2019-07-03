@@ -1,48 +1,71 @@
-import sqlite3
+#################################################################
+# Code to load initial target data from csv and generate clean  #
+# SQL database with initial transit forecast inside, but no     #
+# telescope information                                         #
+# Called by run_sim.py                                          #
+#                                                               #
+# Hamish Caines 07-2019                                         #
+#################################################################
 
 
-def load_planet_data(filename):
-    targets = []
+def load_data_from_csv(filename):
+    """
+    Read csv file and load data, storing data as a list of lists, and storing column headers as a list of strings
+    :param filename: location of file to be read: str
+    :return columns: list of column headers
+    :return rows: list of data entries
+    """
+    rows = []
     try:
         print(filename)
         file = open(filename, 'r')
+        # read column headers from first line
         line = file.readline().split('\n')[0].split(',')
         columns = line
+        # read data from the remainder of the file and add to rows
         while True:
             line = file.readline().split('\n')[0].split(',')
             if line == ['']:
                 break
-            targets.append(line)
-        return columns, targets
+            rows.append(line)
+        return columns, rows
 
     except FileNotFoundError:
         raise FileNotFoundError
 
 
 def obtain_types(values):
+    """
+    Obtain data types for columns from an array of data
+    :param values: Row of data from csv file
+    :return: Array of types
+    """
     types = []
+    # loop through array of values, except for final column
     for value in values[:-1]:
         if value != '':
             try:
-                float(value)
+                float(value)  # check for numeric value
                 types.append('DECIMAL(16,8)')
             except ValueError:
                 types.append('VARCHAR(20)')
         else:
             types.append('DECIMAL(16,8)')
+    # final column for targets is boolean <------ Need to fix for reading telescopes, currently giving aperture boolean
     types.append('BOOLEAN')
     return types
 
 
-def obtain_columns(headers):
-    columns = []
-    for header in headers:
-        columns.append(header)
-    return columns
-
-
 def table_string_builder(columns, types, table_name):
+    """
+    Build SQL statement to be executed to create a table
+    :param columns: List of column headers
+    :param types: List of column types
+    :param table_name: Name of table: str
+    :return: SQL statement to be executed: str
+    """
     string = 'CREATE TABLE IF NOT EXISTS ' + table_name + '('
+    # add each name then type
     for i in range(0, len(columns)):
         string += columns[i] + ' ' + types[i] + ', '
     string = string[:-2]
@@ -50,12 +73,21 @@ def table_string_builder(columns, types, table_name):
     return string
 
 
-def data_string_builder(columns, target, table_name):
+def data_string_builder(columns, data, table_name):
+    """
+    Build SQL statement to be execute to insert a new data row
+    :param columns: List of column headers
+    :param data: List of data arrays
+    :param table_name: Name of table to be inserted into
+    :return: SQL statement to be executed: str
+    """
     string = 'INSERT INTO ' + table_name + ' ('
+    # add columns
     for column in columns:
         string += column + ', '
     string = string[:-2] + ') VALUES ('
-    for value in target:
+    # add values, inserting escape characters for alphanumeric strings
+    for value in data:
         if value == '':
             string += 'NULL, '
         elif value[0].isdigit():
@@ -70,49 +102,45 @@ def data_string_builder(columns, target, table_name):
 
 
 def generate_sql_table_from_csv(filename, table_name, cursor):
-    columns, targets = load_planet_data(filename)
-    types = obtain_types(targets[0])
-    clean_columns = obtain_columns(columns)
-    #if filename == '../database/starting_data.csv':
-    #    targets = targets[:6]
-    table_string = table_string_builder(clean_columns, types, table_name)
-    # cursor.execute('DROP TABLE '+table_name)
+    """
+    Generate SQL table populated with data read from csv file
+    :param filename: Location of csv file to be read: str
+    :param table_name: Name of table: str
+    :param cursor: Cursor connected to database
+    :return: list of data arrays
+    """
+    import sqlite3
+    columns, data = load_data_from_csv(filename)
+    types = obtain_types(data[0])
+    table_string = table_string_builder(columns, types, table_name)
     cursor.execute(table_string)
 
-    for target in targets:
-        data_string = data_string_builder(clean_columns, target, table_name)
-        #print(data_string)
+    for single in data:
+        data_string = data_string_builder(columns, single, table_name)
         try:
             cursor.execute(data_string)
         except sqlite3.IntegrityError:
             pass
-    return targets
+    return data
 
 
 def main():
+    import sqlite3
     database_name = 'clean3.db'
     start_file = '../database/realfake_data2.csv'
-    telescope_file = '../database/telescopes.csv'
-
-    tel_cols, telescopes = load_planet_data(telescope_file)
 
     db = sqlite3.connect(database_name)
     cursor = db.cursor()
     generate_sql_table_from_csv(start_file, 'TARGET_DATA', cursor)
     db.commit()
-    #generate_sql_table_from_csv(telescope_file, 'TELESCOPES', cursor)
-    db.commit()
-    #for telescope in telescopes:
-    #    cursor.execute('DROP TABLE IF EXISTS ' + telescope[0])
-    #    cursor.execute('CREATE TABLE IF NOT EXISTS ' + telescope[
-    #        0] + '(Target VARCHAR(25), RA DECIMAL(16,8), Dec DECIMAL(16,8), ObsCenter DATETIME, RunStart DATETIME, RunEnd DATETIME, RunDuration TIME, Epoch REAL, UNIQUE(RunStart))')
-    #    print(telescope[0])
 
     cursor.execute('SELECT Name FROM TARGET_DATA')
     names = cursor.fetchall()
     for name in names:
         cursor.execute('CREATE TABLE IF NOT EXISTS \'' + name[
-            0] + '\'(ObID REAL, Epoch REAL, ObsCenter DECIMAL(16,8), ObsCenterErr DECIMAL(16,8), TrueCenter DECIMAL(16,8), TrueCenterErr DECIMAL(16,8), ObsDepth DECIMAL(16,8), ObsDepthErr DECIMAL(16,8), ObsDuration DECIMAL(16,8), ObsDurationErr DECIMAL(16,8), Source VARCHAR(25), UNIQUE(ObsCenter))')
+            0] + '\'(ObID REAL, Epoch REAL, ObsCenter DECIMAL(16,8), ObsCenterErr DECIMAL(16,8), TrueCenter DECIMAL(16,'
+                 '8), TrueCenterErr DECIMAL(16,8), ObsDepth DECIMAL(16,8), ObsDepthErr DECIMAL(16,8), ObsDuration DECIM'
+                 'AL(16,8), ObsDurationErr DECIMAL(16,8), Source VARCHAR(25), UNIQUE(ObsCenter))')
     db.commit()
 
     import actions
@@ -122,7 +150,6 @@ def main():
 
     start_date = datetime.today()
     database.transit_forecast(start_date, start_date+timedelta(days=28))
-    #database.make_schedules(start_date)
 
     print('Database initialised')
 
