@@ -115,6 +115,7 @@ def run_simulation(database):
     interval = timedelta(days=7)  # set interval for scheduling interval
     while current_date < end_date:  # loop while date is within simulation
         current_date += interval  # increment date
+        database.increment_total_night(current_date, interval)
         database.make_schedules(current_date, interval, database.mode)  # make schedules for the scheduling interval
         database.simulate_observations(current_date, interval)  # simulate the observations
         time_since_forecast += interval  # increment forecast counter

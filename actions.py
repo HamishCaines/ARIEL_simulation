@@ -22,6 +22,7 @@ class Database:
         :param threshold: Accuracy threshold for the simulation in minutes: int
         """
         import sqlite3
+        from datetime import timedelta
         self.db = sqlite3.connect(database)
         self.cursor = self.db.cursor()
         self.names = self.read_target_names()
@@ -30,6 +31,9 @@ class Database:
         self.telescope_data = []
         self.mode = mode
         self.threshold = threshold
+
+        self.total_night = timedelta(days=0)
+        self.total_obs = timedelta(days=0)
 
     def update(self, table, column, row, value):
         """
@@ -168,6 +172,7 @@ class Database:
         """
         import observation_tools
         import julian
+        import mini_staralt
 
         #  make table for transit data if not exists
         self.cursor.execute(
@@ -317,8 +322,9 @@ class Database:
                             ', ' + str(transit.dec) + ', "' + str(transit.center) + '", "' + str(
                                 new_start) + '", "' + str(new_end) + '", "' +
                             str(duration) + '", ' + str(transit.epoch) + ')')
-                        new_transits += 1  # increment number of scheduled observations
 
+                        new_transits += 1  # increment number of scheduled observations
+                        self.total_obs += transit.duration  # add to total scheduled time
                     except IntegrityError:
                         pass
                 # if schedule is not empty, need to check for space in schedule
@@ -348,7 +354,9 @@ class Database:
                                 ', ' + str(transit.dec) + ', "' + str(transit.center) + '", "' + str(
                                     new_start) + '", "' + str(new_end) + '", "' +
                                 str(duration) + '", ' + str(transit.epoch) + ')')
-                            new_transits += 1
+
+                            new_transits += 1  # increment number of scheduled observations
+                            self.total_obs += transit.duration  # add to total scheduled time
                         except IntegrityError:
                             pass
 
@@ -463,6 +471,8 @@ class Database:
                     print('Fit for '+name+' failed, has '+str(len(observations))+' observations')
                 else:
                     print('Fit for ' + name + ' failed, has ' + str(len(observations)) + ' observation')
+        except TypeError:
+            pass
         self.db.commit()
 
         ######################
@@ -502,14 +512,31 @@ class Database:
         :param count: Number of constrained targets: int
         :param total: Total targets in simulation: int
         """
+        import sqlite3
         # create results table
         self.cursor.execute('CREATE TABLE IF NOT EXISTS RESULTS (Network VARCHAR(25), Mode VARCHAR(25), Accuracy REAL, '
-                            'Constrained REAL, Total REAL, Percent REAL)')
-        percent = count/total*100
+                            'Constrained REAL, Total REAL, PercentTargets REAL, TotalNight DATETIME, TotalObsTime DATETIME, PercentUsage REAL)')
+        percent_constrained = count/total*100
+
+        # convert running night and observation time totals into seconds
+        total_night_s = self.total_night.total_seconds()
+        total_obs_s = self.total_obs.total_seconds()
+        percent_usage = total_obs_s/total_night_s*100  # calculate percentage
+
         # store values
         self.cursor.execute('INSERT INTO RESULTS VALUES ("'+self.telescope_setup+'", "'+self.mode+'", '
-                            ''+str(self.threshold)+', '+str(count)+', '+str(total)+', '+str(percent)+')')
+                            ''+str(self.threshold)+', '+str(count)+', '+str(total)+', '+str(percent_constrained)+', "'
+                            + str(self.total_night)+'", "'+str(self.total_obs)+'", '+str(percent_usage)+')')
         self.db.commit()
+
+        results_db = sqlite3.connect('../results.db')
+        results_cursor = results_db.cursor()
+        results_cursor.execute('CREATE TABLE IF NOT EXISTS RESULTS (Network VARCHAR(25), Mode VARCHAR(25), Accuracy REAL, '
+                            'Constrained REAL, Total REAL, PercentTargets REAL, TotalNight TIME, TotalObsTime TIME, PercentUsage REAL)')
+        results_cursor.execute('INSERT INTO RESULTS VALUES ("'+self.telescope_setup+'", "'+self.mode+'", '
+                            ''+str(self.threshold)+', '+str(count)+', '+str(total)+', '+str(percent_constrained)+', "'
+                            + str(self.total_night)+'", "'+str(self.total_obs)+'", '+str(percent_usage)+')')
+        results_db.commit()
 
     def check_constrained(self, current):
         """
@@ -528,6 +555,29 @@ class Database:
                                         'AND Depth > 10.0 AND ErrAtAriel*24*60 < '+str(self.threshold)).fetchall())
         print('Constrained '+str(count)+'/'+str(total)+' targets on '+str(current.date()))
         return count, total
+
+    def increment_total_night(self, start, interval):
+        """
+        Keep a running total of the total available observing hours through out simulation by calculating sunset and
+        rise for each day in specified window
+        :param start: Start of window: datetime
+        :param interval: Length of window: datetime
+        """
+        from datetime import timedelta
+        import mini_staralt
+
+        end = start + interval
+        day = timedelta(days=1)
+
+        while start < end:
+            for telescope in self.telescope_data:
+                sunset, sunrise = mini_staralt.sun_set_rise(start, lon=telescope.lon, lat=telescope.lat, sundown=-12)
+                duration = sunrise - sunset
+                self.total_night += duration
+
+            start += day
+
+
 
 
 

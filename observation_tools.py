@@ -295,7 +295,7 @@ class Transit2:
                     # check for night at coordinate
                     sun_down = False
                     sunset, sunrise = mini_staralt.sun_set_rise(
-                        self.center.replace(hour=0, second=0, minute=0, microsecond=0), lon=lon, lat=lat, sundown=0)
+                        self.center.replace(hour=0, second=0, minute=0, microsecond=0), lon=lon, lat=lat, sundown=-12)
                     # check sunrise/set against in/egress
                     if self.ingress > sunset:
                         if self.egress < sunrise:
